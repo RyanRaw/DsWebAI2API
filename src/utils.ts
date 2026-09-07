@@ -1,5 +1,6 @@
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { extname } from "node:path";
 
 export function isDirectRun(meta_url = import.meta.url) {
     const entry = process.argv[1];
@@ -37,6 +38,21 @@ export async function getFileBufferFromUrl(
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
+}
+
+export function getImageUploadFileName(buffer: Buffer, fileName: string): string {
+    if (extname(fileName)) return fileName;
+    const mime = detectMimeType(buffer);
+    if (mime === 'image/webp' && buffer.toString('ascii', 8, 12) !== 'WEBP') return fileName;
+    const extensions: Record<string, string> = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/bmp': '.bmp',
+        'image/webp': '.webp',
+    };
+    const extension = extensions[mime];
+    return extension ? `${fileName}${extension}` : fileName;
 }
 
 export function base642Buffer(base64Input: string): Buffer {

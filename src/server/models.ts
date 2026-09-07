@@ -27,6 +27,8 @@ export function getModelConfig(model: string = DEFAULT_MODEL) {
     if (model.includes("expert")) {
         modelType = "expert";
         searchEnabled = false;
+    } else if (model.includes("vision")) {
+        modelType = "vision";
     }
     return {
         model,

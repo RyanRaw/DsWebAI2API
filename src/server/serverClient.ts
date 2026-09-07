@@ -4,7 +4,7 @@ import { loadCredentials } from "../auth.js";
 import { launchChromeForDebugging } from "../browser.js";
 import { DeepSeekBrowserClient } from "../deepseekBrowserClient.js";
 import { DeepSeekWebClient } from "../deepseekWebClient.js";
-import { getFileBufferFromUrl } from "../utils.js";
+import { getFileBufferFromUrl, getImageUploadFileName } from "../utils.js";
 import type { ServerChatRequest } from "../deepseekWebClient.js";
 
 export interface ServerClientOptions {
@@ -72,7 +72,7 @@ class ApiServerClient implements ServerClient {
 
     async uploadFile(url: string | Buffer, fileName: string, modelType: "vision" | "default" = "default"): Promise<string> {
         const buffer = Buffer.isBuffer(url) ? url : await getFileBufferFromUrl(url);
-        return this.client.uploadFile(buffer, fileName, modelType);
+        return this.client.uploadFile(buffer, getImageUploadFileName(buffer, fileName), modelType);
     }
 
     async close(): Promise<void> {
@@ -124,7 +124,7 @@ class BrowserServerClient implements ServerClient {
 
     async uploadFile(url: string | Buffer, fileName: string, modelType: "vision" | "default" = "default"): Promise<string> {
         const buffer = Buffer.isBuffer(url) ? url : await getFileBufferFromUrl(url);
-        return this.client.uploadFile(buffer, fileName, modelType);
+        return this.client.uploadFile(buffer, getImageUploadFileName(buffer, fileName), modelType);
     }
 
     async deleteSession(sessionId: string): Promise<void> {
