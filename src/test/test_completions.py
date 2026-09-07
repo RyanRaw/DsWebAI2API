@@ -21,12 +21,17 @@ messages = [
         "role": "user",
         "content": [
             {   "type": "text",
-                "text": "任务1. 请计算斐波那契数列的第 11 项是多少？\n任务2. 文件名称是什么？内容是什么？"
+                "text": "任务1. 请计算斐波那契数列的第 11 项是多少？\n任务2. 文件名称是什么？内容是什么？\n任务3. 图片中有什么？"
             }, {
                 "type": "file",
                 "file": {
                     "file_data": "5oiR5pivZGVlcHNlZWs=",
                     "filename": "who am i.txt"
+                }
+            }, {
+                "type": "image_url",
+                "image_url": {
+                    "url": "READMEsrc/deepseekWebCodex.png"
                 }
             }
         ]

@@ -10,14 +10,14 @@
     "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "jsonrepair": "^3.14.0",
-    "playwright-core": "1.58.2",
-    "ws": "^8.17.1"
+    "jsonrepair": "^3.15.0",
+    "playwright-core": "1.63.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "@types/ws": "^8.5.14",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "@types/node": "^26.5.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
   }
 }

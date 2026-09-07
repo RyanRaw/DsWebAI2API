@@ -12,7 +12,9 @@ export const MODEL_LIST = [
     "deepseek-expert-thinking",
     // vision
     "deepseek-vision",
+    "deepseek-vision-nosearch",
     "deepseek-vision-thinking",
+    "deepseek-vision-thinking-nosearch",
 ];
 
 export function getModelConfig(model: string = DEFAULT_MODEL) {
@@ -24,9 +26,6 @@ export function getModelConfig(model: string = DEFAULT_MODEL) {
     let searchEnabled = !model.includes("nosearch");
     if (model.includes("expert")) {
         modelType = "expert";
-        searchEnabled = false;
-    } else if (model.includes("vision")) {
-        modelType = "vision";
         searchEnabled = false;
     }
     return {

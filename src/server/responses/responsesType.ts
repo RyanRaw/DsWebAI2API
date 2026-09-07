@@ -1,4 +1,5 @@
 // https://developers.openai.com/api/reference/resources/responses/methods/create
+import path from "node:path";
 import { ToolChoice } from '../completions/completionsType.js';
 export const READY_RESPONSE_ID = "noop-empty-input";    // 有时候一定要有一个响应ID返回，就返回这个值为前缀的
 
@@ -343,6 +344,13 @@ export function estimateUsage(total: number, inputLength: number, outputLength: 
     }
 }
 
+function getImageFileName(imageUrl: string): string {
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        return path.basename(new URL(imageUrl).pathname) || 'image.png';
+    }
+    return path.basename(imageUrl) || 'image.png';
+}
+
 function _uploadFiles(contents: ResponseInputContent[], client: ServerClient, modelType: ServerChatRequest["modelType"]): Promise<string[]> {
     const promises: Promise<string>[] = [];
     for (const content of contents) {
@@ -351,7 +359,7 @@ function _uploadFiles(contents: ResponseInputContent[], client: ServerClient, mo
                 if (content.file_id) {
                     promises.push(Promise.resolve(content.file_id));
                 } else if (content.image_url) {
-                    promises.push(client.uploadFile(content.image_url, `image_${Date.now()}.jpg`, modelType));
+                    promises.push(client.uploadFile(content.image_url, getImageFileName(content.image_url), modelType));
                 } break;
             case 'input_file':
                 if (content.file_id) {

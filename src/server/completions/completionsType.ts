@@ -2,6 +2,7 @@
 // 以下截取了一些需要的，主要保证了：文本、图片、文件、函数调用
 
 import type { ServerChatRequest } from "../../deepseekWebClient.js";
+import path from "node:path";
 import { getModelConfig } from "../models.js";
 
 // ======= 输入 =======
@@ -250,6 +251,13 @@ export function message2CompletionsMessage(msg: string, matchTool = false): Chat
 import { ServerClient } from "../serverClient.js";
 import { base642Buffer } from "../../utils.js";
 
+function getImageFileName(imageUrl: string): string {
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        return path.basename(new URL(imageUrl).pathname) || 'image.png';
+    }
+    return path.basename(imageUrl) || 'image.png';
+}
+
 function _uploadFiles(contents: ChatCompletionContentPart[], client: ServerClient, modelType: ServerChatRequest["modelType"]): Promise<string[]> {
     const promises: Promise<string>[] = [];
     for (const part of contents) {
@@ -264,7 +272,7 @@ function _uploadFiles(contents: ChatCompletionContentPart[], client: ServerClien
                     promises.push(client.uploadFile(part.file.file_url, part.file.filename ?? 'file', modelType));
                 } break;
             case 'image_url':
-                promises.push(client.uploadFile(part.image_url.url, 'image', modelType));
+                promises.push(client.uploadFile(part.image_url.url, getImageFileName(part.image_url.url), modelType));
                 break;
             default:
                 break;
