@@ -1,16 +1,17 @@
 # WebAI2API
 ![接入了CodeX!](READMEsrc/deepseekWebCodex.png)
 
-目标：实现个人免费的AI调用(如接入CodeX、Copilot、QQbot)，兼容OpenAI接口，具备工具执行的能力。正在逐步推进。
+目标：实现个人免费的AI调用(如接入CodeX、Copilot、QQbot)，兼容OpenAI接口，具备工具执行的能力。个人练手（代码手写）
 
 - 和 [`openclaw-zero-token`](https://github.com/linuxhsj/openclaw-zero-token) 的关系：API逆向参考了其代码（特别是PowChallenge）；没有openclaw的部分，只有API的封装，且专门用于Windows。
 - 和 [`foxhui:WebAI2API`](https://github.com/foxhui/WebAI2API) 的关系：目标一致（都是API封装，所以抄了它的项目名），但是我认为它对网页AI调用的开发还不够。且有很多花里胡哨的东西（太重）。
 
-目前只打算针对deepseek进行封装。好处是可以深度定制，坏处是没有多模态。
+只针对deepseek进行封装（懒得维护）
 
 ## 概述
 > [!NOTE]
-> 本项目调用的是 DeepSeek Web 接口，不是官方 `api.deepseek.com` API Key 接口。
+> 本项目调用的是 DeepSeek Web 接口，不是官方 `api.deepseek.com` API Key 接口。<br/>
+> 逆向和反代是不对的！本项目只是练手和自用，没有为大规模使用设计，请珍惜自己的账号。
 
 - 网页AI的好处：免费，适合单人使用；无需自己管理上下文（上面提到的两个库没有很好发挥“网页AI自带记忆管理”这个强项）。
 - 坏处：只能写用户提示词；文件支持较差；要和官方博弈。
@@ -150,9 +151,6 @@ supports_websockets = true
 【新版本VSCode】从1.122.0开始，VSCode内置了自定义端点，无需额外插件。直接添加即可。然而使用 Responses API 存在会话不被复用的问题，建议用 completions API。
 
 在Windows下，codex的 `apply_patch` 工具会有问题，导致代码修改没有diff；而copilot就很好。不过copilot使用的是 completions API，每次会把消息全发出去，稍微浪费一些上行流量。
-
-## TODO
-- [x] 文件和图片的上传。对于 flash 模式（有联网功能），在prompt中写图片链接，DS也会进行OCR，非常适合QQbot，倒是无需专门上传。显式传递 url 或者 base64 会触发文件上传，费一些时间
 
 
 ## 文件结构

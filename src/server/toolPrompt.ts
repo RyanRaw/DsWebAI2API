@@ -59,29 +59,39 @@ function buildToolChoicePrompt(toolChoice?: ToolChoice): string {
 }
 
 // 模型往往犯蠢，不按照格式输出，所以设计了多种标签
-// 第一个应该是最长的
-const beginTags = ['<tool_call>', '<tool>', '<tool_use>', '<call>'];
-const endTags = ['</tool_call>', '</tool>', '</tool_use>', '</call>'];
+const canonicalBeginTag = '<tool_call>';
+const beginTags = [
+    '<｜｜DSML｜｜tool_call>',
+    '<｜DSML｜tool_calls>',
+    '<｜tool▁call▁begin｜>',
+    canonicalBeginTag,
+    '<tool>',
+    '<tool_use>',
+    '<call>',
+];
+const endTags = ['<｜tool▁call▁end｜>', '</tool_call>', '</tool>', '</tool_use>', '</call>'];
+const maxBeginTagLength = Math.max(...beginTags.map(tag => tag.length));
 const paramsBeginTag = '<params>';
 const paramsBeginTag2 = '{';
 const paramsEndTag = '</params>';
+const maxClosingTagLength = Math.max(paramsEndTag.length, ...endTags.map(tag => tag.length));
 
 export const toolCallFormat = `[important]:
 When you need to use tools, you MUST output EXACTLY in format like these:
 \`\`\`
-${beginTags[0]}
+${canonicalBeginTag}
 	tool1_name
 	${paramsBeginTag}
 		{"param1":value1,...}
 	${paramsEndTag}
 ${endTags[0]}
-${beginTags[0]}tool2_name<params>{"param2":value2,...}</params>${endTags[0]}
+${canonicalBeginTag}tool2_name<params>{"param2":value2,...}</params>${endTags[0]}
 \`\`\`
 RULES:
 - Each tool call MUST be wrapped in <tool_call> ... </tool_call>
 - Inside, put the tool name, then <params> with JSON`;
 
-const toolCallPattern = /<tool_call>\s*([\s\S]*?)\s*<params>\s*([\s\S]*?)\s*<\/params>\s*<\/tool_call>/gs;
+const toolCallPattern = /(?:<｜｜DSML｜｜tool_call>|<｜DSML｜tool_calls>|<｜tool▁call▁begin｜>|<tool_call>)\s*([\s\S]*?)\s*<params>\s*([\s\S]*?)\s*<\/params>\s*(?:<｜tool▁call▁end｜>|<\/tool_call>)/gs;
 
 // ===== 流式解析 =====
 interface ToolCallDeltaToolInfo {
@@ -130,7 +140,7 @@ export class ToolCallParser {
         if (parameters.length > this.shortCallParamLen + 3) {
             parameters = parameters.slice(0, this.shortCallParamLen) + '...';
         }
-        return `${beginTags[0]}${toolName}${paramsBeginTag}${parameters}${paramsEndTag}${endTags[0]}`;
+        return `${canonicalBeginTag}${toolName}${paramsBeginTag}${parameters}${paramsEndTag}${endTags[0]}`;
     }
 
     private buffer = '';
@@ -144,19 +154,19 @@ export class ToolCallParser {
         switch (this.state) {
             case ToolCallParseState.Normal: {
                 let i = -1;
-                let beginTag = beginTags[0];
+                let beginTag = '';
                 for (const tag of beginTags) {
-                    i = this.buffer.indexOf(tag);
-                    if (i >= 0) {
+                    const tagIndex = this.buffer.indexOf(tag);
+                    if (tagIndex >= 0 && (i < 0 || tagIndex < i)) {
+                        i = tagIndex;
                         beginTag = tag;
-                        break;
                     }
                 }
                 if (i < 0) {
-                    if (this.buffer.length >= beginTag.length) {
+                    if (this.buffer.length >= maxBeginTagLength) {
                         // 前面普通文本直接流出去
-                        // 可能存在 <tool_call> 被分成两半的情况，所以需要保留后面部分
-                        const normalTextEndIndex = this.buffer.length - beginTag.length + 1;
+                        // 起始标签可能被分到两个 chunk，所以保留最长标签所需的尾部
+                        const normalTextEndIndex = this.buffer.length - maxBeginTagLength + 1;
                         events.push({ type: 'text_delta', data: this.buffer.slice(0, normalTextEndIndex) });
                         this.buffer = this.buffer.slice(normalTextEndIndex);
                     } break;
@@ -187,14 +197,18 @@ export class ToolCallParser {
             case ToolCallParseState.InParams: {
                 let i = this.buffer.indexOf(paramsEndTag);
                 if (i < 0) {
+                    let endTag = '';
                     for (const tag of endTags) {
-                        i = this.buffer.indexOf(tag);
-                        if (i >= 0) break;
+                        const tagIndex = this.buffer.indexOf(tag);
+                        if (tagIndex >= 0 && (i < 0 || tagIndex < i)) {
+                            i = tagIndex;
+                            endTag = tag;
+                        }
                     }
                     if (i < 0) {
                         // 还没有完整的参数或结束标签，先把参数增量流出去
-                        if (this.buffer.length >= paramsEndTag.length) {
-                            const paramsDeltaEndIndex = this.buffer.length - paramsEndTag.length + 1;
+                        if (this.buffer.length >= maxClosingTagLength) {
+                            const paramsDeltaEndIndex = this.buffer.length - maxClosingTagLength + 1;
                             const paramsDelta = this.buffer.slice(0, paramsDeltaEndIndex);
                             events.push({ type: 'tool_call_parameters_delta', data: paramsDelta });
                             this.buffer = this.buffer.slice(paramsDeltaEndIndex);
@@ -216,10 +230,10 @@ export class ToolCallParser {
                 let i = -1;
                 let endTag = '';
                 for (const tag of endTags) {
-                    i = this.buffer.indexOf(tag);
-                    if (i >= 0) {
+                    const tagIndex = this.buffer.indexOf(tag);
+                    if (tagIndex >= 0 && (i < 0 || tagIndex < i)) {
+                        i = tagIndex;
                         endTag = tag;
-                        break;
                     }
                 }
                 if (i < 0) break;
