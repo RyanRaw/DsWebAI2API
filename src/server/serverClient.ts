@@ -70,7 +70,7 @@ class ApiServerClient implements ServerClient {
         await this.client.deleteSession(sessionId);
     }
 
-    async uploadFile(url: string | Buffer, fileName: string, modelType: "vision" | "default" = "default"): Promise<string> {
+    async uploadFile(url: string | Buffer, fileName: string, modelType: ServerChatRequest["modelType"] = "default"): Promise<string> {
         const buffer = Buffer.isBuffer(url) ? url : await getFileBufferFromUrl(url);
         return this.client.uploadFile(buffer, getImageUploadFileName(buffer, fileName), modelType);
     }
@@ -122,7 +122,7 @@ class BrowserServerClient implements ServerClient {
         };
     }
 
-    async uploadFile(url: string | Buffer, fileName: string, modelType: "vision" | "default" = "default"): Promise<string> {
+    async uploadFile(url: string | Buffer, fileName: string, modelType: ServerChatRequest["modelType"] = "default"): Promise<string> {
         const buffer = Buffer.isBuffer(url) ? url : await getFileBufferFromUrl(url);
         return this.client.uploadFile(buffer, getImageUploadFileName(buffer, fileName), modelType);
     }

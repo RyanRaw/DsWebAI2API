@@ -9,7 +9,7 @@ export interface ServerChatRequest {
     sessionId?: string;
     parentMessageId?: number | null;    // null为第一句话 此参数影响上下文 超过现有长度会报错
 
-    modelType?: 'expert' | 'default' | 'vision' | null;
+    modelType?: 'default';
     searchEnabled?: boolean;
     thinkingEnabled?: boolean;
 
@@ -72,8 +72,8 @@ export class DeepSeekWebClient {
             Referer: "https://chat.deepseek.com/",
             Origin: "https://chat.deepseek.com",
             "x-client-platform": "web",
-            "x-client-version": "2.0.0",    // 版本号和响应格式有关
-            "x-app-version": "2.0.0",
+            "x-client-version": "2.4.0",    // 版本号和响应格式有关
+            "x-client-bundle-id": "com.deepseek.chat",
             "x-client-locale": "zh_CN",
             "x-client-timezone-offset": "28800",
         };
@@ -263,8 +263,9 @@ export class DeepSeekWebClient {
             },
             body: JSON.stringify({
                 chat_session_id: params.sessionId,
-                model_type: params.modelType ?? null,
+                model_type: params.modelType ?? "default",
                 parent_message_id: params.parentMessageId ?? null,
+                action: null,
                 preempt: params.preempt ?? false,
                 prompt: params.message,
                 ref_file_ids: params.fileIds || [],

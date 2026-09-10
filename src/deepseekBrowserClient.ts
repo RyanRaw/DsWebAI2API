@@ -148,10 +148,6 @@ export class DeepSeekBrowserClient {
         if (!page.url().includes("deepseek.com")) {
             await page.goto('https://chat.deepseek.com');
         }
-        if (modelType !== "default" && modelType !== null) {
-            // 切换到识图模式 识图模式不会拒绝OCR失败的图片
-            await page.locator(`[data-model-type="${modelType}"][role="radio"]`).click();
-        }
         let fileId: string | null = null;
         let upload_status: string | undefined = undefined;
 
@@ -343,7 +339,7 @@ export class DeepSeekBrowserClient {
                     // 一定有
                     throw new Error(`Failed to capture session ID from request payload: ${request.postData()}`);
                 }
-                if (params.modelType !== undefined) payload.model_type = params.modelType;
+                payload.model_type = params.modelType ?? "default";
                 if (params.fileIds !== undefined) payload.ref_file_ids = params.fileIds;
                 if (params.searchEnabled !== undefined) payload.search_enabled = params.searchEnabled;
                 if (params.thinkingEnabled !== undefined) payload.thinking_enabled = params.thinkingEnabled;

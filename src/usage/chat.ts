@@ -25,7 +25,7 @@ async function chatWithDeepSeek(
     const body = await client.chatCompletions({
         sessionId: session,
         message: params.message,
-        modelType: null,
+        modelType: "default",
         searchEnabled: true,
         thinkingEnabled: false,
         parentMessageId: params.parentMessageId ?? null,
