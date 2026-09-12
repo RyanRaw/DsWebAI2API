@@ -60,6 +60,7 @@ function buildToolChoicePrompt(toolChoice?: ToolChoice): string {
 
 // 模型往往犯蠢，不按照格式输出，所以设计了多种标签
 const canonicalBeginTag = '<tool_call>';
+const canonicalEndTag = '</tool_call>';
 const beginTags = [
     '<｜｜DSML｜｜tool_call>',
     '<｜DSML｜tool_calls>',
@@ -69,7 +70,7 @@ const beginTags = [
     '<tool_use>',
     '<call>',
 ];
-const endTags = ['<｜tool▁call▁end｜>', '</tool_call>', '</tool>', '</tool_use>', '</call>'];
+const endTags = ['<｜tool▁call▁end｜>', canonicalEndTag, '</tool>', '</tool_use>', '</call>'];
 const maxBeginTagLength = Math.max(...beginTags.map(tag => tag.length));
 const paramsBeginTag = '<params>';
 const paramsBeginTag2 = '{';
@@ -84,8 +85,8 @@ ${canonicalBeginTag}
 	${paramsBeginTag}
 		{"param1":value1,...}
 	${paramsEndTag}
-${endTags[0]}
-${canonicalBeginTag}tool2_name<params>{"param2":value2,...}</params>${endTags[0]}
+${canonicalEndTag}
+${canonicalBeginTag}tool2_name<params>{"param2":value2,...}</params>${canonicalEndTag}
 \`\`\`
 RULES:
 - Each tool call MUST be wrapped in <tool_call> ... </tool_call>
