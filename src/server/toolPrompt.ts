@@ -141,7 +141,7 @@ export class ToolCallParser {
         if (parameters.length > this.shortCallParamLen + 3) {
             parameters = parameters.slice(0, this.shortCallParamLen) + '...';
         }
-        return `${canonicalBeginTag}${toolName}${paramsBeginTag}${parameters}${paramsEndTag}${endTags[0]}`;
+        return `${canonicalBeginTag}${toolName}${paramsBeginTag}${parameters}${paramsEndTag}${canonicalEndTag}`;
     }
 
     private buffer = '';
