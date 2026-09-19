@@ -21,6 +21,8 @@ export interface ServerChatResult {
 export interface ServerClient {
     readonly mode: "api" | "browser";
     runChatCompletion(params: ServerChatRequest): Promise<ServerChatResult>;
+    continueChat: DeepSeekWebClient["continueChat"];
+    stopChat: DeepSeekWebClient["stopChat"];
     uploadFile(url: string | Buffer, fileName: string, modelType?: ServerChatRequest["modelType"]): Promise<string>;
     deleteSession(sessionId: string): Promise<void>;
     close(): Promise<void>;
@@ -52,23 +54,16 @@ class ApiServerClient implements ServerClient {
 
     async runChatCompletion(params: ServerChatRequest): Promise<ServerChatResult> {
         const sessionId = params.sessionId ?? await this.client.createChatSession();
-        const body = await this.client.chatCompletions({
-            sessionId,
-            message: params.message,
-            modelType: params.modelType,
-            fileIds: params.fileIds,
-            searchEnabled: params.searchEnabled,
-            thinkingEnabled: params.thinkingEnabled,
-            preempt: params.preempt,
-            parentMessageId: params.parentMessageId,
-            signal: params.signal,
-        });
+        const body = await this.client.chatCompletions({ ...params, sessionId });
         return { sessionId, body };
     }
 
     async deleteSession(sessionId: string): Promise<void> {
         await this.client.deleteSession(sessionId);
     }
+
+    continueChat: DeepSeekWebClient["continueChat"] = params => this.client.continueChat(params);
+    stopChat: DeepSeekWebClient["stopChat"] = params => this.client.stopChat(params);
 
     async uploadFile(url: string | Buffer, fileName: string, modelType: ServerChatRequest["modelType"] = "default"): Promise<string> {
         const buffer = Buffer.isBuffer(url) ? url : await getFileBufferFromUrl(url);
@@ -105,22 +100,15 @@ class BrowserServerClient implements ServerClient {
     }
 
     async runChatCompletion(params: ServerChatRequest): Promise<ServerChatResult> {
-        const result = await this.client.chatCompletions({
-            sessionId: params.sessionId,
-            message: params.message,
-            modelType: params.modelType,
-            fileIds: params.fileIds,
-            searchEnabled: params.searchEnabled,
-            thinkingEnabled: params.thinkingEnabled,
-            preempt: params.preempt,
-            parentMessageId: params.parentMessageId,
-            signal: params.signal,
-        });
+        const result = await this.client.chatCompletions(params);
         return {
             sessionId: result.sessionId,
             body: stringToStream(result.body),
         };
     }
+
+    continueChat: DeepSeekWebClient["continueChat"] = async params => stringToStream(await this.client.continueChat(params));
+    stopChat: DeepSeekWebClient["stopChat"] = params => this.client.stopChat(params);
 
     async uploadFile(url: string | Buffer, fileName: string, modelType: ServerChatRequest["modelType"] = "default"): Promise<string> {
         const buffer = Buffer.isBuffer(url) ? url : await getFileBufferFromUrl(url);

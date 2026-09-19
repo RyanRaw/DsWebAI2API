@@ -72,7 +72,7 @@ export class DeepSeekWebClient {
             Referer: "https://chat.deepseek.com/",
             Origin: "https://chat.deepseek.com",
             "x-client-platform": "web",
-            "x-client-version": "2.4.0",    // 版本号和响应格式有关
+            "x-client-version": "2.5.0",    // 版本号和响应格式有关
             "x-client-bundle-id": "com.deepseek.chat",
             "x-client-locale": "zh_CN",
             "x-client-timezone-offset": "28800",
@@ -241,9 +241,11 @@ export class DeepSeekWebClient {
 
     // 发送消息 sessionId 必填
     async chatCompletions(params: ServerChatRequest & {sessionId: string}): Promise<ReadableStream<Uint8Array>> {
+        params.signal?.throwIfAborted();
         const targetPath = "/api/v0/chat/completion";
         const challenge = await this.createPowChallenge(targetPath);
         const answer = await this.solvePow(challenge);
+        params.signal?.throwIfAborted();
         const powResponse = Buffer.from(
             JSON.stringify({
                 ...challenge,
@@ -272,7 +274,7 @@ export class DeepSeekWebClient {
                 search_enabled: params.searchEnabled ?? true,
                 thinking_enabled: params.thinkingEnabled ?? false,
             }),
-            signal: params.signal,
+            // fetch的signal一直管理到sse流结束，所以不能在这里直接使用 signal 来中止请求
         });
 
         if (!res.ok) {
@@ -292,6 +294,38 @@ export class DeepSeekWebClient {
         // 参数错误时可能返回 json 错误信息，正常响应是流式的
         // application/json: {"code":0,"msg":"","data":{"biz_code":1,"biz_msg":"invalid chat session id","biz_data":null}}
         throw new Error(`Unexpected content type[${contentType}] for chat completion response: ${await res.text()}`);
+    }
+
+    async continueChat(params: { sessionId: string; messageId: number; signal?: AbortSignal }): Promise<ReadableStream<Uint8Array>> {
+        params.signal?.throwIfAborted();
+        const res = await fetch("https://chat.deepseek.com/api/v0/chat/continue", {
+            method: "POST",
+            headers: this.headers,
+            body: JSON.stringify({
+                chat_session_id: params.sessionId,
+                message_id: params.messageId,
+                fallback_to_resume: true,
+            }),
+        });
+        if (!res.ok) {
+            throw new Error(`Chat continue failed: ${res.status} ${await res.text()}`);
+        }
+        const contentType = res.headers.get("content-type") ?? "";
+        if (contentType.includes('text/event-stream') && res.body !== null) return res.body;
+        throw new Error(`Unexpected content type[${contentType}] for chat continue response: ${await res.text()}`);
+    }
+
+    async stopChat(params: { sessionId: string; messageId: number }): Promise<void> {
+        const res = await fetch("https://chat.deepseek.com/api/v0/chat/stop_stream", {
+            method: "POST",
+            headers: this.headers,
+            body: JSON.stringify({
+                chat_session_id: params.sessionId,
+                message_id: params.messageId,
+            }),
+        });
+        const body = await res.text();
+        if (!res.ok) throw new Error(`Chat stop failed: ${res.status} ${body}`);
     }
 
     // 发送文件，返回 fileId。上传后需要轮询文件状态，直到成功或失败

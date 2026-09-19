@@ -8,6 +8,7 @@ export class DeepseekStateDecoder {
     state: {
         ready: Record<string, any> | null;
         hint: Record<string, any> | null;
+        toast: Record<string, any> | null;
         update_session: Record<string, any>[];
         message: Record<string, any>;
         title: string | null;
@@ -26,6 +27,7 @@ export class DeepseekStateDecoder {
             update_session: [],
             message: {},
             hint: null,
+            toast: null,
         };
         this.currentPath = 'message';
         this.currentOp = 'SET';

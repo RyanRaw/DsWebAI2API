@@ -5,6 +5,7 @@ import process from "node:process";
 import { parseArgs } from "node:util";
 import { getDefaultCredentialPath } from "../auth.js";
 import { parseResultFromStream } from "../deepseekStreamParser.js";
+import { isDirectRun } from "../utils.js";
 import {
     getAllowedIpSummary,
     isAllowlistedClient,
@@ -355,7 +356,9 @@ async function main() {
     });
 }
 
-main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-});
+if (isDirectRun(import.meta.url)) {
+    main().catch((error) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+    });
+}

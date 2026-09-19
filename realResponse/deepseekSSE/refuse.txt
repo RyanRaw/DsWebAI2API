@@ -1,0 +1,82 @@
+event: ready
+data: {"request_message_id":1,"response_message_id":2,"model_type":"default"}
+
+event: update_session
+data: {"updated_at":1789807586.046623}
+
+data: {"v":{"response":{"message_id":2,"parent_id":1,"model":"","role":"ASSISTANT","thinking_enabled":true,"ban_edit":false,"ban_regenerate":false,"status":"WIP","incomplete_message":null,"accumulated_token_usage":0,"feedback":null,"inserted_at":1789807586.031558,"search_enabled":true,"fragments":[{"id":2,"type":"THINK","content":"The","elapsed_secs":null,"references":[],"stage_id":1}],"conversation_mode":"DEFAULT","has_pending_fragment":false,"auto_continue":false,"search_triggered":false,"extra_search_providers":[]}}}
+
+data: {"p":"response/fragments/-1/content","o":"APPEND","v":" user"}
+
+data: {"v":" replied"}
+
+data: {"v":" to"}
+
+data: {"v":" a"}
+
+data: {"v":" message"}
+
+data: {"v":" with"}
+
+data: {"v":" ID"}
+
+data: {"v":" "}
+
+data: {"v":"160"}
+
+data: {"v":"139"}
+
+data: {"v":"319"}
+
+data: {"v":"1"}
+
+data: {"v":"."}
+
+data: {"v":" I"}
+
+data: {"v":" need"}
+
+data: {"v":" to"}
+
+data: {"v":" fetch"}
+
+data: {"v":" that"}
+
+data: {"v":" message"}
+
+data: {"v":" to"}
+
+data: {"v":" see"}
+
+data: {"v":" what"}
+
+data: {"v":" the"}
+
+data: {"v":" question"}
+
+data: {"v":" is"}
+
+data: {"v":"."}
+
+data: {"p":"response/fragments/-1/elapsed_secs","o":"SET","v":0.450138917}
+
+data: {"p":"response/has_pending_fragment","v":true}
+
+data: {"v":false}
+
+data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":2583},{"p":"quasi_status","v":"INCOMPLETE"}]}
+
+data: {"p":"response/status","o":"SET","v":"INCOMPLETE"}
+
+event: toast
+data: {"type":"error","content":"服务器暂时不可用","finish_reason":"generation_err"}
+
+event: update_session
+data: {"updated_at":1789807586.277951}
+
+event: title
+data: {"content":"[tool instruction]:\nYou will rec"}
+
+event: close
+data: {"click_behavior":"none","auto_resume":false}
+

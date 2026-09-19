@@ -1,0 +1,76 @@
+event: ready
+data: {"request_message_id":1,"response_message_id":2,"model_type":"default"}
+
+event: update_session
+data: {"updated_at":1789807609.3446538}
+
+data: {"v":{"response":{"message_id":2,"parent_id":1,"model":"","role":"ASSISTANT","thinking_enabled":true,"ban_edit":false,"ban_regenerate":false,"status":"WIP","incomplete_message":null,"accumulated_token_usage":2583,"feedback":null,"inserted_at":1789807586.0319998,"search_enabled":true,"fragments":[{"id":2,"type":"THINK","content":"The user replied to a message with ID 1601393191. I need to fetch that message to see what the question is.","elapsed_secs":0.944627047,"references":[],"stage_id":1},{"id":3,"type":"RESPONSE","content":"<","references":[],"stage_id":0}],"conversation_mode":"DEFAULT","has_pending_fragment":false,"auto_continue":false,"search_triggered":false,"extra_search_providers":[]}}}
+
+data: {"p":"response/fragments/-1/content","o":"APPEND","v":"tool"}
+
+data: {"v":"_call"}
+
+data: {"v":">\n"}
+
+data: {"v":"\tget"}
+
+data: {"v":"Message"}
+
+data: {"v":"\n"}
+
+data: {"v":"\t"}
+
+data: {"v":"<"}
+
+data: {"v":"params"}
+
+data: {"v":">\n"}
+
+data: {"v":"\t"}
+
+data: {"v":"\t"}
+
+data: {"v":"{\""}
+
+data: {"v":"message"}
+
+data: {"v":"_id"}
+
+data: {"v":"\":"}
+
+data: {"v":"160"}
+
+data: {"v":"139"}
+
+data: {"v":"319"}
+
+data: {"v":"1"}
+
+data: {"v":"}\n"}
+
+data: {"v":"\t"}
+
+data: {"v":"</"}
+
+data: {"v":"params"}
+
+data: {"v":">\n"}
+
+data: {"v":"</"}
+
+data: {"v":"tool"}
+
+data: {"v":"_call"}
+
+data: {"v":">"}
+
+data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":2613},{"p":"quasi_status","v":"FINISHED"}]}
+
+data: {"p":"response/status","o":"SET","v":"FINISHED"}
+
+event: update_session
+data: {"updated_at":1789807609.4434738}
+
+event: close
+data: {"click_behavior":"none","auto_resume":false}
+

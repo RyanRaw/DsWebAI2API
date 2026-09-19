@@ -42,6 +42,7 @@ export class DeepSeekBrowserClient {
     private withAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
         if (!signal) return promise;
         if (signal.aborted) {
+            void promise.catch(() => undefined);
             return Promise.reject(this.createAbortError());
         }
         return new Promise<T>((resolve, reject) => {
@@ -318,8 +319,70 @@ export class DeepSeekBrowserClient {
         return this.enqueueTask<boolean | null>(() => this._deleteSession(sessionId));
     }
 
+    async continueChat(params: { sessionId: string; messageId: number; signal?: AbortSignal }): Promise<string> {
+        return this.enqueueTask(async () => {
+            params.signal?.throwIfAborted();
+            await this.withAbort(this._switchSession(params.sessionId), params.signal);
+            return this._continueChat(params);
+        });
+    }
+
+    private async _continueChat(params: { sessionId: string; messageId: number; signal?: AbortSignal }): Promise<string> {
+        const page = await this.page;
+        params.signal?.throwIfAborted();
+        const responsePromise = page.waitForResponse(response => {
+            if (new URL(response.url()).pathname !== '/api/v0/chat/continue') return false;
+            const payload = this.parseJsonSafely(response.request().postData() ?? '{}');
+            return payload?.chat_session_id === params.sessionId && payload?.message_id === params.messageId;
+        });
+        const pendingBody = responsePromise.then(response => response.text());
+        void pendingBody.catch(() => undefined);
+        let generating = true;
+        try {
+            await this.withAbort(page.getByRole('button', { name: '继续生成', exact: true }).last().click(), params.signal);
+            const response = await this.withAbort(responsePromise, params.signal);
+            const body = await this.withAbort(pendingBody, params.signal);
+            generating = false;
+            if (!response.ok()) {
+                throw new Error(`Chat continue failed: ${response.status()} ${body}`);
+            }
+            const contentType = response.headers()['content-type'] ?? '';
+            if (!contentType.includes('text/event-stream')) {
+                throw new Error(`Unexpected content type[${contentType}] for chat continue response: ${body}`);
+            }
+            return body;
+        } catch (error) {
+            if (params.signal?.aborted && generating) {
+                await this._stopChat({ sessionId: params.sessionId });
+                await pendingBody;
+            }
+            throw error;
+        }
+    }
+
+    async stopChat(params: { sessionId: string }): Promise<void> {
+        return this.enqueueTask(async () => {
+            await this._switchSession(params.sessionId);
+            await this._stopChat(params);
+        });
+    }
+
+    private async _stopChat(params: { sessionId: string }): Promise<void> {
+        const page = await this.page;
+        const responsePromise = page.waitForResponse(response => {
+            if (new URL(response.url()).pathname !== '/api/v0/chat/stop_stream') return false;
+            const payload = this.parseJsonSafely(response.request().postData() ?? '{}');
+            return payload?.chat_session_id === params.sessionId;
+        });
+        void responsePromise.catch(() => undefined);
+        await page.locator('[role="button"]:has(svg path[d^="M2 4.88C2 3.68009"])').click();
+        const response = await responsePromise;
+        if (!response.ok()) throw new Error(`Chat stop failed: ${response.status()} ${await response.text()}`);
+    }
+
     async chatCompletions(params: ServerChatRequest) {  // sessionId 不填会自动新建会话
         return this.enqueueTask<ChatCompletionResult>(async () => {
+            params.signal?.throwIfAborted();
             if (this.verbose) console.log(`[DeepSeekBrowserClient] Starting chat completion.`);
             const page = await this.page;
             const sessionIdFromUrl = await this.withAbort(this._switchSession(params.sessionId ?? ""), params.signal);

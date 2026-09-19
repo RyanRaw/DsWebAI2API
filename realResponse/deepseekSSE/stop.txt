@@ -1,0 +1,13 @@
+data: {"v":"139"}
+
+data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":2642},{"p":"quasi_status","v":"INCOMPLETE"}]}
+
+data: {"p":"response/fragments/-1/elapsed_secs","o":"SET","v":0.902364037}
+
+data: {"p":"response/status","v":"INCOMPLETE"}
+
+event: update_session
+data: {"updated_at":1789811290.882448}
+
+event: close
+data: {"click_behavior":"none","auto_resume":false}
