@@ -353,7 +353,8 @@ export class DeepSeekBrowserClient {
             return body;
         } catch (error) {
             if (params.signal?.aborted && generating) {
-                await this._stopChat({ sessionId: params.sessionId });
+                // 内部终止就算报错也不管
+                await this._stopChat({ sessionId: params.sessionId }).catch(() => undefined);
                 await pendingBody;
             }
             throw error;
@@ -413,34 +414,48 @@ export class DeepSeekBrowserClient {
                 await page.unroute(routePattern, routeHandler);
             };
             await page.route(routePattern, routeHandler);
+            let generating = false;
+            let pendingBody: Promise<string> | undefined;
             // 等待结果
             try {
                 // 发起请求
                 const inputOk = await this.withAbort(this.textInput(params.message), params.signal);
                 if (!inputOk) throw new Error("Failed to input message into DeepSeek textbox.");
+                params.signal?.throwIfAborted();
                 const responsePromise = page.waitForResponse((response) => {
                     if (!response.url().includes("/api/v0/chat/completion")) return false;
                     // 用sessionId 核对是否为目标请求
                     const postData = this.parseJsonSafely(response.request().postData() ?? "{}") ?? {};
                     return postData.chat_session_id === capturedSessionId;
                 });
+                pendingBody = responsePromise.then(response => response.text());
+                void pendingBody.catch(() => undefined);
+                generating = true;
                 const sent = await this.withAbort(this.send(), params.signal);
                 if (!sent) {
-                    void responsePromise.catch(() => undefined);
+                    generating = false;
                     throw new Error("Failed to click DeepSeek send button.");
                 }
 
                 const response = await this.withAbort(responsePromise, params.signal);
                 const contentType = response.headers()["content-type"] ?? "";
-                const raw = await this.withAbort(response.text(), params.signal);
+                const body = await this.withAbort(pendingBody, params.signal);
+                generating = false;
                 if (!contentType.includes("text/event-stream")) {
-                    throw new Error(`Unexpected content type[${contentType}] for chat completion response: ${raw}`);
+                    throw new Error(`Unexpected content type[${contentType}] for chat completion response: ${body}`);
                 }
 
                 return {
                     sessionId: capturedSessionId,
-                    body: raw,  // 框架无法捕获流，只能一次性获取全部文本
+                    body,  // 框架无法捕获流，只能一次性获取全部文本
                 };
+            } catch (error) {
+                if (params.signal?.aborted && generating) {
+                    // 内部终止就算报错也不管
+                    await this._stopChat({ sessionId: capturedSessionId }).catch(() => undefined);
+                    await pendingBody;
+                }
+                throw error;
             } finally {
                 await page.unroute(routePattern, routeHandler);
             }

@@ -40,6 +40,7 @@ export class WebSocketSessionManager {
     private readonly client: ServerClient;
     private sessionId: string | null = null;    // 用于删除对话
     private readonly abortControllers = new Map<string, AbortController>();
+    private readonly pendingRequests = new Set<Promise<void>>();
     // 管理instructions
     private instructions: string | undefined;   // 防止每次都发送
     private lastInstructionMessageId: number = -114514;
@@ -76,7 +77,14 @@ export class WebSocketSessionManager {
         this.ws = ws;
         this.client = client;
 
-        ws.on("message", (data) => this.handleMessage(data));
+        ws.on("message", (data) => {
+            const request = this.handleMessage(data);
+            this.pendingRequests.add(request);
+            void request.then(
+                () => this.pendingRequests.delete(request),
+                () => this.pendingRequests.delete(request),
+            );
+        });
         ws.on("close", (code, reason) => {
             this.cleanup().catch(error => { });
         }); // 连接断开的时机: archive该session或者关闭codex
@@ -209,7 +217,12 @@ export class WebSocketSessionManager {
                     (data) => {
                         if (abortController.signal.aborted) return;
                         this.sendRaw(data);
-                    }
+                    },
+                    {
+                        signal: abortController.signal,
+                        continueChat: messageId => this.client.continueChat({ sessionId: runResult.sessionId, messageId, signal: abortController.signal }),
+                        stopChat: messageId => this.client.stopChat({ sessionId: runResult.sessionId, messageId }),
+                    },
                 );
                 rememberResponseSessionMessageId(runResult.sessionId, parsed.messageId);
                 this.lastInstructionMessageId = parsed.messageId ?? -114514;
@@ -276,6 +289,7 @@ export class WebSocketSessionManager {
             controller.abort();
         }
         this.abortControllers.clear();
+        await Promise.allSettled(this.pendingRequests);
 
         // 删除会话
         if (this.sessionId && !this.sessionId.startsWith(READY_RESPONSE_ID)) {

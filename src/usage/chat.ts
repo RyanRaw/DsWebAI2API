@@ -2,7 +2,7 @@ import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { getDefaultCredentialPath, loadCredentials } from "../auth.js";
 import { DeepSeekWebClient } from "../deepseekWebClient.js";
-import { DeepseekStreamParser } from "../deepseekStreamParser.js";
+import { parseResultFromStream } from "../deepseekStreamParser.js";
 import { isDirectRun } from "../utils.js";
 import { parseArgs } from "node:util";
 
@@ -19,8 +19,10 @@ async function chatWithDeepSeek(
         message: string;
         sessionId?: string;
         parentMessageId?: number | null;
+        signal?: AbortSignal;
         onDelta?: (type: string, delta: string) => void,
     }): Promise<ChatResult> {
+    params.signal?.throwIfAborted();
     const session = params.sessionId ?? await client.createChatSession();
     const body = await client.chatCompletions({
         sessionId: session,
@@ -29,139 +31,14 @@ async function chatWithDeepSeek(
         searchEnabled: true,
         thinkingEnabled: false,
         parentMessageId: params.parentMessageId ?? null,
+        signal: params.signal,
     });
-    return await parseDeepSeekSse(body, session, params.onDelta);
-}
-
-async function parseDeepSeekSse(
-    body: ReadableStream<Uint8Array>,
-    sessionId: string,
-    onDelta?: (type: string, delta: string) => void,
-): Promise<ChatResult> {
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    const parser = new DeepseekStreamParser(onDelta);
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            parser.finish();
-            break;
-        }
-        const chunk = decoder.decode(value, { stream: true });
-        parser.push(chunk);
-    }
-
-    let messageId = parser.decoder.state.message.response?.message_id;
-    if (typeof messageId === "number") {
-        if (!Number.isFinite(messageId)) messageId = null;
-    } else if (typeof messageId === "string") {
-        const parsed = Number(messageId);
-        messageId = Number.isFinite(parsed) ? parsed : null;
-    } else messageId = null;
-
-    return {
-        text: parser.text('RESPONSE'),
-        thinking: parser.text('THINK'),
-        messageId,
-        sessionId,
-    };
-}
-
-async function runInteractiveChat(credentialsPath?: string, initialMessage?: string, deleteSession = false) {
-    const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
+    const result = await parseResultFromStream(body, params.onDelta, {
+        signal: params.signal,
+        continueChat: messageId => client.continueChat({ sessionId: session, messageId, signal: params.signal }),
+        stopChat: messageId => client.stopChat({ sessionId: session, messageId }),
     });
-    const credentials = loadCredentials(credentialsPath ?? getDefaultCredentialPath());
-    const client = new DeepSeekWebClient({
-        cookie: credentials.cookie,
-        bearer: credentials.bearer,
-        userAgent: credentials.userAgent,
-    });
-    let sessionId: string | undefined;
-    let parentMessageId: number | null = null;
-
-    rl.on("SIGINT", async () => {
-        rl.close();
-        process.stdout.write("\nExited chat.\n");
-        if (deleteSession && sessionId) {
-            await client.deleteSession(sessionId);
-            process.stdout.write("Deleted chat session.\n");
-        }
-        process.exit(0);
-    });
-
-    process.stdout.write("Interactive chat mode. Press Ctrl+C to exit.\n");
-
-    while (true) {
-        let message: string;
-        if (initialMessage) {
-            message = initialMessage;
-            initialMessage = undefined;
-        } else {
-            message = (await rl.question("you> ")).trim();
-        }
-        if (!message) continue;
-
-        let state: string | null = null;
-        const result = await chatWithDeepSeek(client, {
-            message,
-            sessionId,
-            parentMessageId,
-            onDelta: (type: string, delta) => {
-                if (state !== null && type !== state) {
-                    process.stdout.write("\n");
-                }
-                state = type;
-                if (type === "THINK") {
-                    process.stdout.write(`\x1b[90m${delta}\x1b[0m`);
-                } else if (type === "RESPONSE") {
-                    process.stdout.write(delta);
-                }
-            },
-        });
-
-        if (!result.text.endsWith("\n")) {
-            process.stdout.write("\n");
-        }
-
-        sessionId = result.sessionId;
-        parentMessageId = result.messageId;
-    }
-}
-
-async function runSingleChat(message: string, credentialsPath?: string, deleteSession = false) {
-    if (!message) throw new Error("Missing chat message.");
-
-    const credentials = loadCredentials(credentialsPath || getDefaultCredentialPath());
-    const client = new DeepSeekWebClient({
-        cookie: credentials.cookie,
-        bearer: credentials.bearer,
-        userAgent: credentials.userAgent,
-    });
-    // client.logout();
-    // return;
-    let state: string | null = null;
-    const result = await chatWithDeepSeek(client, {
-        message,
-        onDelta: (type: string, delta) => {
-            if (state !== null && type !== state) {
-                process.stdout.write("\n---------\n");
-            }
-            state = type;
-            if (type === "THINK") {
-                process.stdout.write(`\x1b[90m${delta}\x1b[0m`);
-            } else {
-                process.stdout.write(delta);
-            }
-        },
-    });
-    if (!result.text.endsWith("\n")) {
-        process.stdout.write("\n");
-    }
-    if (deleteSession) {
-        await client.deleteSession(result.sessionId);
-    }
+    return { ...result, sessionId: session };
 }
 
 async function runChatCli() {
@@ -176,14 +53,62 @@ async function runChatCli() {
         strict: true,
     });
 
-    const credentialsPath = parsed.values.credentials;
-    const message = parsed.positionals.join(" ").trim();
-
-    if (parsed.values.interactive) {
-        await runInteractiveChat(credentialsPath, message, parsed.values.delete);
-        return;
+    const interactive = parsed.values.interactive;
+    let message = parsed.positionals.join(" ").trim();
+    if (!interactive && !message) throw new Error("Missing chat message.");
+    const credentials = loadCredentials(parsed.values.credentials ?? getDefaultCredentialPath());
+    const client = new DeepSeekWebClient({
+        cookie: credentials.cookie,
+        bearer: credentials.bearer,
+        userAgent: credentials.userAgent,
+    });
+    const rl = interactive ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
+    const controller = new AbortController();
+    const { signal } = controller;
+    let sessionId: string | undefined;
+    let parentMessageId: number | null = null;
+    // Ctrl+C 只取消任务，等待停止和读流清理完成后再退出
+    const onInterrupt = () => controller.abort();
+    process.on("SIGINT", onInterrupt);
+    rl?.on("SIGINT", onInterrupt);
+    if (interactive) process.stdout.write("Interactive chat mode. Press Ctrl+C to exit.\n");
+    try {
+        while (!signal.aborted) {
+            if (!message && rl) message = (await rl.question("you> ", { signal })).trim();
+            if (!message) continue;
+            // 提前保存会话 ID，首轮取消后也能按需删除会话
+            signal.throwIfAborted();
+            sessionId ??= await client.createChatSession();
+            let state: string | null = null;
+            const result = await chatWithDeepSeek(client, {
+                message, sessionId, parentMessageId, signal,
+                onDelta: (type, delta) => {
+                    if (state !== null && type !== state) process.stdout.write(interactive ? "\n" : "\n---------\n");
+                    state = type;
+                    if (type === "THINK") process.stdout.write(`\x1b[90m${delta}\x1b[0m`);
+                    else if (!interactive || type === "RESPONSE") process.stdout.write(delta);
+                },
+            });
+            if (!result.text.endsWith("\n")) process.stdout.write("\n");
+            if (!interactive) break;
+            parentMessageId = result.messageId;
+            message = "";
+        }
+    } catch (error) {
+        if (!signal.aborted || !(error instanceof Error) || error.name !== "AbortError") throw error;
+    } finally {
+        rl?.off("SIGINT", onInterrupt);
+        rl?.close();
+        try {
+            if (parsed.values.delete && sessionId) {
+                await client.deleteSession(sessionId);
+                if (interactive) process.stdout.write("Deleted chat session.\n");
+            }
+        } finally {
+            process.off("SIGINT", onInterrupt);
+        }
     }
-    await runSingleChat(message, credentialsPath, parsed.values.delete);
+    if (signal.aborted) process.stdout.write("\nExited chat.\n");
 }
 
 

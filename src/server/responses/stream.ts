@@ -312,7 +312,7 @@ function streamSendMessageContent(sender: (data: any) => void, content: Response
 }
 
 // 流式解析
-import { DeepseekStreamParser, toNumberOrNull } from "../../deepseekStreamParser.js";
+import { DeepseekStreamParser, readDeepseekStream, toNumberOrNull, type StreamReadOptions } from "../../deepseekStreamParser.js";
 import { ToolCallDelta, ToolCallParser } from "../toolPrompt.js";
 import { buildResponseId } from "../responseId.js";
 
@@ -562,10 +562,12 @@ export async function streamEventsFromStream(
     requestId: string,
     model: string,
     inputLength: number,
-    send: (data: any) => void
+    send: (data: any) => void,
+    options: StreamReadOptions = {},
 ) {
     const toolParser = useTool ? (new ToolCallParser()) : null;
     let typeMode = '';
+    let initialized = false;
     const streamBuilder = new StreamResponseBuilder(send);
     function parseToolEvent(ev: ToolCallDelta, type: string) {
         switch (ev.type) {
@@ -619,8 +621,9 @@ export async function streamEventsFromStream(
                 streamBuilder.addTextDelta(delta);
             }
         },
-        (event) => {
-            if (event.event === 'ready') {
+        event => {
+            if (event.event === 'ready' && !initialized) {
+                initialized = true;
                 streamBuilder.initSend(
                     buildResponseId(requestId, event.data?.response_message_id),
                     model
@@ -628,17 +631,7 @@ export async function streamEventsFromStream(
             }
         }
     );
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            parser.finish();
-            break;
-        }
-        parser.push(decoder.decode(value, { stream: true }));
-    }
+    await readDeepseekStream(stream, parser, options);
     if (toolParser) {
         const e = toolParser.finish();
         if (e) parseToolEvent(e, "RESPONSE");
@@ -647,8 +640,9 @@ export async function streamEventsFromStream(
     const result = {
         text: parser.text("RESPONSE").trim(),
         thinking: parser.text("THINK").trim(),
-        messageId: toNumberOrNull(parser.decoder.state.message.response?.message_id),
-        accumulated_token_usage: parser.decoder.state.message.response?.accumulated_token_usage ?? -1
+        messageId: toNumberOrNull(parser.decoder.state.message.response?.message_id)
+                ?? toNumberOrNull(parser.decoder.state.ready?.response_message_id),
+        accumulated_token_usage: parser.decoder.state.message.response?.accumulated_token_usage ?? -1,
     };
     // 补充缺少的字段
     streamBuilder.response.response.usage = estimateUsage(result.accumulated_token_usage, inputLength, result.text.length + result.thinking.length);

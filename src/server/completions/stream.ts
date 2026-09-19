@@ -1,4 +1,4 @@
-import { DeepseekStreamParser, toNumberOrNull } from "../../deepseekStreamParser.js";
+import { parseResultFromStream, type StreamReadOptions } from "../../deepseekStreamParser.js";
 import { estimateUsage } from "../responses/responsesType.js";
 import { ToolCallDelta, ToolCallParser } from "../toolPrompt.js";
 import { ChatCompletionMessageFunctionToolCall, CompletionsFinishReason } from "./completionsType.js";
@@ -102,7 +102,8 @@ export async function streamEventsFromStream(
     requestId: string,
     model: string,
     inputLength: number,
-    send: (data: any) => void
+    send: (data: any) => void,
+    options: StreamReadOptions = {},
 ) {
     const toolParser = useTool ? (new ToolCallParser()) : null;
     const builder = new StreamResponseBuilder(send, requestId, model);
@@ -130,7 +131,7 @@ export async function streamEventsFromStream(
         }
     }
 
-    const parser = new DeepseekStreamParser((type, delta) => {
+    const result = await parseResultFromStream(stream, (type, delta) => {
         if (type === "THINK") {
             builder.sendText(delta, true);
         } else if (type === "RESPONSE") {
@@ -141,30 +142,12 @@ export async function streamEventsFromStream(
             }
             builder.sendText(delta);
         }
-    });
-
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            parser.finish();
-            break;
-        }
-        parser.push(decoder.decode(value, { stream: true }));
-    }
+    }, options);
     if (toolParser) {
         const e = toolParser.finish();
         if (e) parseToolEvent(e);
     }
 
-    const result = {
-        text: parser.text("RESPONSE").trim(),
-        thinking: parser.text("THINK").trim(),
-        messageId: toNumberOrNull(parser.decoder.state.message.response?.message_id),
-        accumulated_token_usage: parser.decoder.state.message.response?.accumulated_token_usage ?? -1
-    };
     const usage = estimateUsage(result.accumulated_token_usage, inputLength, result.text.length + result.thinking.length);
     builder.finish({
         total_tokens: usage.total_tokens,

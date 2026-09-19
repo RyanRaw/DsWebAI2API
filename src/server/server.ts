@@ -53,7 +53,8 @@ async function handleChatCompletions(req: IncomingMessage, res: ServerResponse, 
     }
 
     const abortController = new AbortController();
-    req.on("close", () => abortController.abort());
+    res.once("close", () => { if (!res.writableEnded) abortController.abort(); });
+    if (res.destroyed) abortController.abort();
 
     let sessionId: string | null = null;
     try {
@@ -64,9 +65,14 @@ async function handleChatCompletions(req: IncomingMessage, res: ServerResponse, 
         });
 
         const requestId = sessionId = runResult.sessionId;
+        const streamOptions = {
+            signal: abortController.signal,
+            continueChat: (messageId: number) => client.continueChat({ sessionId: requestId, messageId, signal: abortController.signal }),
+            stopChat: (messageId: number) => client.stopChat({ sessionId: requestId, messageId }),
+        };
 
         if (!rawInput.stream) {
-            const parsed = await parseResultFromStream(runResult.body);
+            const parsed = await parseResultFromStream(runResult.body, undefined, streamOptions);
             const thinking = parsed.thinking.trim();
             const msg = message2CompletionsMessage(parsed.text, useTool);
             if (thinking) {
@@ -103,12 +109,18 @@ async function handleChatCompletions(req: IncomingMessage, res: ServerResponse, 
             (data) => {
                 if (abortController.signal.aborted || res.writableEnded) return;
                 sendSseData(res, data);
-            }
+            },
+            streamOptions,
         );
         sendSseDone(res);
     } catch (error) {
         if (abortController.signal.aborted || res.writableEnded) return;
         const message = error instanceof Error ? error.message : String(error);
+        if (res.headersSent) {
+            sendSseData(res, errorResponse(message, 500, "server_error"));
+            sendSseDone(res);
+            return;
+        }
         if (message.includes("Unsupported model:")) {
             sendJson(res, 400, errorResponse(message));
             return;
@@ -137,7 +149,8 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
     }
     const fileIds = await resp_uploadFiles(rawInput, client, normalized.modelType);
     const abortController = new AbortController();
-    req.on("close", () => abortController.abort());
+    res.once("close", () => { if (!res.writableEnded) abortController.abort(); });
+    if (res.destroyed) abortController.abort();
 
     const queueSessionId = normalized.sessionId ?? null;
     const execute = async () => {
@@ -150,6 +163,11 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
             signal: abortController.signal,
         });
         const requestId = runResult.sessionId;
+        const streamOptions = {
+            signal: abortController.signal,
+            continueChat: (messageId: number) => client.continueChat({ sessionId: requestId, messageId, signal: abortController.signal }),
+            stopChat: (messageId: number) => client.stopChat({ sessionId: requestId, messageId }),
+        };
 
         if (rawInput.stream === true) {
             sendSseHeaders(res);
@@ -162,7 +180,8 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
                 (data) => {
                     if (abortController.signal.aborted || res.writableEnded) return;
                     sendSseData(res, data);
-                }
+                },
+                streamOptions,
             );
             rememberResponseSessionMessageId(requestId, parsed.messageId);
             sendSseDone(res);
@@ -170,7 +189,7 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
         }
 
         // 一次性解析完
-        const parsed = await parseResultFromStream(runResult.body);
+        const parsed = await parseResultFromStream(runResult.body, undefined, streamOptions);
         const id = buildResponseId(requestId, parsed.messageId);
         const output = message2ResponsesOutput(parsed.text, id, useTool);
         if (parsed.thinking.trim()) {   // 添加思考字段
@@ -210,6 +229,11 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
+        if (res.headersSent) {
+            sendSseData(res, { type: "error", code: "server_error", message, param: null });
+            sendSseDone(res);
+            return;
+        }
         if (message.includes("Unsupported model:")) {
             sendJson(res, 400, errorResponse(message));
             return;

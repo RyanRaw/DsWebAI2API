@@ -1,5 +1,13 @@
 import { SseStreamParser, type SSEvent } from "./sseStreamParser.js";
 type DeltaFn = (type: string, delta: string) => void;
+
+export class DeepSeekStreamError extends Error {
+    constructor(content: string, public readonly messageId: number | null) {
+        super(`Deepseek API Error: ${content}`);
+        this.name = "DeepSeekStreamError";
+    }
+}
+
 /**
  * DeepseekStateDecoder 负责根据 SSE 事件构建一个状态对象，支持基于路径的增量更新和批量操作
  */
@@ -287,33 +295,142 @@ export class DeepseekStreamParser extends SseStreamParser {
     }
 }
 
-// 解析流
+export interface StreamReadOptions {
+    /** 生成到一半中断了怎么恢复 */
+    continueChat?: (messageId: number) => Promise<ReadableStream<Uint8Array>>;
+    /** 调用方提供统一的客户端停止方法 */
+    stopChat?: (messageId: number) => Promise<void>;
+    signal?: AbortSignal;
+}
+
+/**
+ * 驱动调用方的解析器读流，EOF 后仅对 INCOMPLETE 状态最多续传三次
+ * 续传前重建解码状态，按类型跳过已输出的文本前缀，最终保留成功响应的完整状态
+ * onEvent 保留原始事件，由调用方决定业务事件的初始化和结束时机
+ * 取消或读取异常时，由调用方提供的 stopChat 停止已知消息，等待停止后再释放 reader
+ * 内部停止失败仅作为清理失败忽略，保留原来的取消或读取异常
+ */
+export async function readDeepseekStream(
+    stream: ReadableStream<Uint8Array>,
+    parser: DeepseekStreamParser,
+    { continueChat, stopChat, signal }: StreamReadOptions = {},
+) {
+    // 暂存调用方回调，每轮读取时包装回调，结束后恢复
+    const onDelta = parser.decoder.onDelta;
+    const onEvent = parser.onEvent;
+    // 跨请求记录各类型已经输出的字符数，续传重放的前缀不再向调用方输出
+    const emitted = new Map<string, number>();
+    let messageId: number | null = null;
+    // 读流或续传请求失败时尽力停止已知消息，清理失败不覆盖原错误
+    const stopGeneration = async () => {
+        try {
+            if (messageId !== null) await stopChat?.(messageId);
+        } catch {
+            // 停止失败后仍继续本地清理 同时处理 stopChat报错和Promise的reject
+        }
+    };
+
+    // 首轮读取传入的流，后续每轮读取一次续传响应，失败响应的内容和用量不带入新状态
+    for (let retries = 0; ; retries++) {
+        if (retries > 0) parser.decoder = new DeepseekStateDecoder(onDelta);
+        // received 只统计本轮，按续传重放相同前缀的约定与跨轮累计的 emitted 比较
+        const received = new Map<string, number>();
+        parser.decoder.onDelta = onDelta && ((type, delta) => {
+            if (signal?.aborted) return;
+            const start = received.get(type) ?? 0;
+            const end = start + delta.length;
+            const sent = emitted.get(type) ?? 0;
+            received.set(type, end);
+            if (end > sent) {
+                // 一个 delta 可能同时包含已输出的前缀和新增内容，只保留超出 sent 的部分
+                onDelta(type, delta.slice(Math.max(0, sent - start)));
+                emitted.set(type, end);
+            }
+        });
+        // onEvent 先于状态解码执行，提前捕获 ID，让事件或增量回调中触发的取消也能停止对应消息
+        parser.onEvent = event => {
+            if (event.event === 'ready') messageId = toNumberOrNull(event.data?.response_message_id) ?? messageId;
+            if (event.event === 'message') messageId = toNumberOrNull(event.data?.v?.response?.message_id) ?? messageId;
+            if (!signal?.aborted) onEvent?.(event);
+        };
+        // 续传响应尚未给出 ID 时沿用上一轮的消息 ID，其余解码状态仍独立
+        parser.decoder.state.ready = { response_message_id: messageId };
+        const reader = stream.getReader();
+        const decoder = new TextDecoder();
+        let stopping: Promise<void> | undefined;
+        // 取消与读取异常共用同一次停止操作，有 ID 时先等待服务端停止，再取消本地读流
+        // 尚无 ID 时直接取消本地读流，不等待后续事件补齐 ID
+        const stop = (reason?: unknown) => {
+            if (stopping) return;
+            messageId = toNumberOrNull(parser.decoder.state.message.response?.message_id)
+                ?? toNumberOrNull(parser.decoder.state.ready?.response_message_id)
+                ?? messageId;
+            stopping = stopGeneration().then(() => reader.cancel(reason));
+            // 事件监听器无法等待异步结果，先避免未处理的拒绝，错误由 finally 中的 await 传播
+            void stopping.catch(() => undefined);
+        };
+        const onAbort = () => stop(signal?.reason);
+        signal?.addEventListener('abort', onAbort, { once: true });
+        try {
+            // 注册监听前已经取消的信号不会再次派发 abort，需要主动触发清理
+            if (signal?.aborted) onAbort();
+            // 错误事件和 close 事件都不提前结束读取，读到 EOF 才能保留尾部状态并决定是否续传
+            while (!stopping) {
+                const { done, value } = await reader.read();
+                parser.push(decoder.decode(value, { stream: !done }));
+                if (done) break;
+            }
+            parser.finish();
+        } catch (error) {
+            stop(error);
+            throw error;
+        } finally {
+            // 正常 EOF 只需释放锁，异常路径由 stop 取消一次 reader，等待完成后再允许外层清理会话
+            parser.decoder.onDelta = onDelta;
+            parser.onEvent = onEvent;
+            signal?.removeEventListener('abort', onAbort);
+            try {
+                await stopping;
+            } finally {
+                reader.releaseLock();
+            }
+        }
+
+        // 用户取消优先于 INCOMPLETE 恢复
+        signal?.throwIfAborted();
+        const { message, ready } = parser.decoder.state;
+        const error = Object.values(parser.decoder.state).flat().find(data => data?.type === 'error');
+        const incomplete = message.response?.status === 'INCOMPLETE';
+        if (!error && !incomplete) return;
+        messageId = toNumberOrNull(message.response?.message_id) ?? toNumberOrNull(ready?.response_message_id);
+        // 只有 INCOMPLETE 且具备续传方法和消息 ID 才能恢复，初次请求之后最多再请求3次
+        if (!incomplete || !continueChat || messageId === null || retries >= 3) {
+            throw new DeepSeekStreamError(error?.content ?? error?.message ?? (incomplete ? 'Response is incomplete' : 'Unknown error'), messageId);
+        }
+        try {
+            stream = await continueChat(messageId);
+        } catch (error) {
+            // 续传请求失败时还没有可清理的 reader，使用已知消息 ID 调用停止方法
+            await stopGeneration();
+            throw error;
+        }
+    }
+}
+
+/** 读取响应并返回最后一次成功的文本、思考和用量 */
 export async function parseResultFromStream(
     stream: ReadableStream<Uint8Array>,
-    onDelta?: (type: string, delta: string) => void,
+    onDelta?: DeltaFn,
+    options: StreamReadOptions = {},
 ) {
     const parser = new DeepseekStreamParser(onDelta);
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            parser.finish();
-            break;
-        }
-        parser.push(decoder.decode(value, { stream: true }));
-    }
-
-    if (parser.decoder.state.hint && parser.decoder.state.hint.type === 'error') {
-        throw new Error(`Deepseek API Error: ${parser.decoder.state.hint.content}`);
-    }
-
+    await readDeepseekStream(stream, parser, options);
     return {
         text: parser.text("RESPONSE").trim(),
         thinking: parser.text("THINK").trim(),
-        messageId: toNumberOrNull(parser.decoder.state.message.response?.message_id),
-        accumulated_token_usage: parser.decoder.state.message.response?.accumulated_token_usage ?? -1
+        messageId: toNumberOrNull(parser.decoder.state.message.response?.message_id)
+                ?? toNumberOrNull(parser.decoder.state.ready?.response_message_id),
+        accumulated_token_usage: parser.decoder.state.message.response?.accumulated_token_usage ?? -1,
     };
 }
 
