@@ -87,11 +87,11 @@ export function sendSseDone(res: ServerResponse) {
     res.end();
 }
 
-export function errorResponse(message: string, statusCode = 400, code?: string) {
+export function errorResponse(message: string, statusCode = 400, code?: string, id?: string) {
     const error: Record<string, unknown> = {
         message,
         type: statusCode >= 500 ? "server_error" : "invalid_request_error",
     };
     if (code !== undefined) error.code = code;
-    return { error };
+    return { ...(id ? { id } : {}), error };
 }

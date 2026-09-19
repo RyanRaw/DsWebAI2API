@@ -4,7 +4,7 @@ import Stream from "node:stream";
 import process from "node:process";
 import { parseArgs } from "node:util";
 import { getDefaultCredentialPath } from "../auth.js";
-import { parseResultFromStream } from "../deepseekStreamParser.js";
+import { DeepSeekStreamError, parseResultFromStream } from "../deepseekStreamParser.js";
 import { isDirectRun } from "../utils.js";
 import {
     getAllowedIpSummary,
@@ -116,8 +116,9 @@ async function handleChatCompletions(req: IncomingMessage, res: ServerResponse, 
     } catch (error) {
         if (abortController.signal.aborted || res.writableEnded) return;
         const message = error instanceof Error ? error.message : String(error);
+        const id = buildResponseId(sessionId, error instanceof DeepSeekStreamError ? error.messageId : null);
         if (res.headersSent) {
-            sendSseData(res, errorResponse(message, 500, "server_error"));
+            sendSseData(res, errorResponse(message, 500, "server_error", id));
             sendSseDone(res);
             return;
         }
@@ -125,7 +126,7 @@ async function handleChatCompletions(req: IncomingMessage, res: ServerResponse, 
             sendJson(res, 400, errorResponse(message));
             return;
         }
-        sendJson(res, 500, errorResponse(message, 500, "server_error"));
+        sendJson(res, 500, errorResponse(message, 500, "server_error", id));
     } finally {
         // completions 为无状态接口，请求结束后删除会话。
         if (sessionId) {
@@ -153,6 +154,7 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
     if (res.destroyed) abortController.abort();
 
     const queueSessionId = normalized.sessionId ?? null;
+    let sessionId = queueSessionId;
     const execute = async () => {
         const runResult = await client.runChatCompletion({
             ...normalized,
@@ -162,7 +164,7 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
                 : normalized.parentMessageId,
             signal: abortController.signal,
         });
-        const requestId = runResult.sessionId;
+        const requestId = sessionId = runResult.sessionId;
         const streamOptions = {
             signal: abortController.signal,
             continueChat: (messageId: number) => client.continueChat({ sessionId: requestId, messageId, signal: abortController.signal }),
@@ -229,8 +231,9 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
+        const id = buildResponseId(sessionId, error instanceof DeepSeekStreamError ? error.messageId : null);
         if (res.headersSent) {
-            sendSseData(res, { type: "error", code: "server_error", message, param: null });
+            sendSseData(res, { ...(id ? { id } : {}), type: "error", code: "server_error", message, param: null });
             sendSseDone(res);
             return;
         }
@@ -238,7 +241,7 @@ async function handleResponses(req: IncomingMessage, res: ServerResponse, client
             sendJson(res, 400, errorResponse(message));
             return;
         }
-        sendJson(res, 500, errorResponse(message, 500, "server_error"));
+        sendJson(res, 500, errorResponse(message, 500, "server_error", id));
     }
 }
 
